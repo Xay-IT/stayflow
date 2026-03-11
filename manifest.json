@@ -2,7 +2,7 @@
   "name": "StayFlow — Hotel Booking",
   "short_name": "StayFlow",
   "description": "Hotel Booking Timeline Manager",
-  "start_url": "./hotel-booking-app.html",
+  "start_url": "./index.html",
   "id": "/stayflow/",
   "display": "standalone",
   "background_color": "#0e1117",
