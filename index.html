@@ -20,11 +20,11 @@
     orientation: "any",
     icons: [
       {
-        src: "./icon-192.png",
+        src: new URL("icon-192.png", location.href).href,
         sizes: "192x192", type: "image/png", purpose: "any"
       },
       {
-        src: "./icon-512.png",
+        src: new URL("icon-512.png", location.href).href,
         sizes: "512x512", type: "image/png", purpose: "any maskable"
       }
     ],
