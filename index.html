@@ -1239,8 +1239,15 @@ function fetchData() {
       return b;
     });
     const serverIds = new Set(serverBookings.map(b => b.id));
+    // Only keep pending bookings that server genuinely doesn't know about yet
     const stillPending = state.bookings.filter(b => b._pending && !serverIds.has(b.id));
-    state.bookings = [...serverBookings, ...stillPending];
+    // Deduplicate by id
+    const seen = new Set();
+    state.bookings = [...serverBookings, ...stillPending].filter(b => {
+      if (seen.has(b.id)) return false;
+      seen.add(b.id);
+      return true;
+    });
     state.rooms = json.rooms || [];
     saveCache();   // Cache fresh data
     const label = 'Synced ' + new Date().toLocaleTimeString('th-TH') + 
@@ -2370,6 +2377,16 @@ This cannot be undone`)) return;
 }
 
 async function saveBooking() {
+  // ── Guard: prevent double-submit ──
+  if (saveBooking._saving) return;
+  saveBooking._saving = true;
+  setTimeout(() => { saveBooking._saving = false; }, 5000);
+
+  // Disable save button visually
+  const saveBtn = document.querySelector('#modalOverlay .btn-primary');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '⏳ Saving...'; }
+  const resetBtn = () => { if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 Save'; } saveBooking._saving = false; };
+
   const fAdult  = parseInt(document.getElementById('fGuestAdult')?.value) || 1;
   const fChild  = parseInt(document.getElementById('fGuestChild')?.value) || 0;
   const fInfant = parseInt(document.getElementById('fGuestInfant')?.value) || 0;
@@ -2448,7 +2465,7 @@ async function saveBooking() {
   if (conflicts.length > 0) {
     const names = conflicts.map(b => `  • ${b.name}  (${b.checkin} to ${b.checkout})`).join('\n');
     alert('⚠️ ไม่สามารถบันทึกได้\nห้อง ' + data.room + ' มีการจองในช่วงวันที่นี้แล้ว!\n\n' + names);
-    return;
+    resetBtn(); return;
   }
   // Price already set from fPrice input
 
@@ -2467,6 +2484,7 @@ async function saveBooking() {
     setSyncStatus('loading', '⟳ Syncing...');
 
     // Background sync to GAS
+    console.log('[saveBooking] calling gasAction:', action, tempId, new Date().toISOString());
     gasAction({
       action,
       id:          data.id,
@@ -2496,15 +2514,22 @@ async function saveBooking() {
     })
       .then(json => {
         if (json && json.ok) {
-          if (!state.editingId && json.id && json.id !== tempId) {
+          if (!state.editingId && json.id) {
+            // Replace TMP id with real BK id (keep in state until fetchData)
             const i = state.bookings.findIndex(b => b.id === tempId);
-            if (i >= 0) { state.bookings[i].id = json.id; delete state.bookings[i]._pending; }
+            if (i >= 0) {
+              state.bookings[i].id = json.id;
+              delete state.bookings[i]._pending;
+            }
           } else {
             state.bookings.forEach(b => delete b._pending);
           }
+          render();
           saveCache();
-          setTimeout(fetchData, 5000);
+          resetBtn();
+          setTimeout(fetchData, 3000);
         } else {
+          resetBtn();
           if (!state.editingId) { state.bookings = state.bookings.filter(b => b.id !== tempId); render(); }
           setSyncStatus('err', '⚠️ Sync failed — click Sync again');
           saveCache();
@@ -4541,6 +4566,45 @@ function getSeasonPrice(roomId, checkin, checkout, ratePlan) {
   const nights   = Math.round((co - ci) / 86400000);
   if (nights <= 0) return null;
 
+  // Helper: extract price from a season's prices object
+  function priceFromSeason(season) {
+    const p = season.prices || {};
+    if (ratePlan && p[ratePlan] !== undefined && typeof p[ratePlan] === 'object') {
+      return Number(p[ratePlan][roomType] ?? p[ratePlan][''] ?? 0);
+    } else if (!ratePlan || ratePlan === 'Standard') {
+      return Number(p['Standard']?.[roomType] ?? 0);
+    } else if (p[roomType] !== undefined) {
+      return Number(p[roomType]);
+    }
+    return 0;
+  }
+
+  // Helper: find season by MM-DD pattern (year-agnostic)
+  function getFallbackSeason(iso) {
+    const mmdd = iso.slice(5); // "MM-DD"
+
+    // Match by MM-DD pattern across all seasons (ignore year)
+    const matched = seasonsCache.find(s => {
+      if (!s.start || !s.end) return false;
+      const smmdd = s.start.slice(5); // "MM-DD"
+      const emmdd = s.end.slice(5);   // "MM-DD"
+      if (smmdd <= emmdd) {
+        // Normal range e.g. 03-16 to 10-15
+        return mmdd >= smmdd && mmdd <= emmdd;
+      } else {
+        // Wrap-around range e.g. 10-16 to 03-15
+        return mmdd >= smmdd || mmdd <= emmdd;
+      }
+    });
+    if (matched) return matched;
+
+    // Last resort: most recent past season
+    const past = seasonsCache
+      .filter(s => s.end && s.end.slice(0,10) < iso)
+      .sort((a, b) => b.end.slice(0,10).localeCompare(a.end.slice(0,10)));
+    return past[0] || seasonsCache[seasonsCache.length - 1] || null;
+  }
+
   let total = 0;
   const nightRates = [];
 
@@ -4554,10 +4618,8 @@ function getSeasonPrice(roomId, checkin, checkout, ratePlan) {
       const sStart = s.start ? s.start.slice(0,10) : '';
       const sEnd   = s.end   ? s.end.slice(0,10)   : '';
       if (sStart > iso || sEnd < iso) return false;
-      // Season must have price data
       const p = s.prices;
       if (!p || !Object.keys(p).length) return true;
-      // Check if prices has ratePlan dimension or flat dimension
       const hasPlan = ratePlan && p[ratePlan] !== undefined;
       const hasFlat = p[roomType] !== undefined;
       return hasPlan || hasFlat || true;
@@ -4565,21 +4627,18 @@ function getSeasonPrice(roomId, checkin, checkout, ratePlan) {
 
     let price, seasonName;
     if (season) {
-      const p = season.prices || {};
-      // Try: prices[ratePlan][roomType] → prices[ratePlan][''] → prices[roomType] → 0
-      if (ratePlan && p[ratePlan] !== undefined && typeof p[ratePlan] === 'object') {
-        price = Number(p[ratePlan][roomType] ?? p[ratePlan][''] ?? 0);
-      } else if (!ratePlan || ratePlan === 'Standard') {
-        price = Number(p['Standard']?.[roomType] ?? 0);
-      } else if (p[roomType] !== undefined) {
-        price = Number(p[roomType]);
-      } else {
-        price = 0;
-      }
+      price      = priceFromSeason(season);
       seasonName = season.name;
     } else {
-      price      = 0;
-      seasonName = null;
+      // ── Fallback: use most recent past season's price ──
+      const fallback = getFallbackSeason(iso);
+      if (fallback) {
+        price      = priceFromSeason(fallback);
+        seasonName = fallback.name;
+      } else {
+        price      = 0;
+        seasonName = null;
+      }
     }
 
     total += price;
