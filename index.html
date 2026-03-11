@@ -5991,26 +5991,8 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
       await navigator.serviceWorker.register('./sw.js');
-    } catch (e) {
-      // Inline SW blob fallback (single-file / HTTPS without sw.js)
-      const swCode = `const CACHE='stayflow-v1';
-self.addEventListener('install',e=>{e.waitUntil(self.skipWaiting())});
-self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim())});
-self.addEventListener('fetch',e=>{
-  if(e.request.method!=='GET')return;
-  try{const u=new URL(e.request.url);if(u.hostname.includes('script.google.com'))return;}catch(ex){}
-  e.respondWith(caches.match(e.request).then(cached=>{
-    if(cached)return cached;
-    return fetch(e.request).then(resp=>{
-      if(resp&&resp.status===200){const cl=resp.clone();caches.open(CACHE).then(c=>c.put(e.request,cl)).catch(()=>{});}
-      return resp;
-    }).catch(()=>cached||new Response('Offline',{status:503}));
-  }));
-});`;
-      try {
-        const blob = new Blob([swCode], {type:'application/javascript'});
-        await navigator.serviceWorker.register(URL.createObjectURL(blob), {scope:'./'});
-      } catch(e2) { console.log('SW skipped:', e2.message); }
+    } catch(e) {
+      console.log('SW not available — deploy sw.js alongside this file for offline support');
     }
   });
 }
