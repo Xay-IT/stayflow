@@ -2,7 +2,8 @@
   "name": "StayFlow — Hotel Booking",
   "short_name": "StayFlow",
   "description": "Hotel Booking Timeline Manager",
-  "start_url": "./index.html",
+  "start_url": "/stayflow/index.html",
+  "scope": "/stayflow/",
   "id": "/stayflow/",
   "display": "standalone",
   "background_color": "#0e1117",
@@ -10,13 +11,13 @@
   "orientation": "any",
   "icons": [
     {
-      "src": "./icon-192.png",
+      "src": "/stayflow/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "./icon-512.png",
+      "src": "/stayflow/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
