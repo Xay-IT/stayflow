@@ -3602,13 +3602,18 @@ function refreshAllPartnerSelects() {
   document.querySelectorAll('.g-agent').forEach(sel => populateAgentSelect(sel));
 }
 
-// Called when RD partner changes → sync to g-agent
+// Called when RD partner changes → sync to g-agent and g-company
 function syncPartnerFromRD() {
   const val = document.getElementById('dPartnerSelect')?.value || '';
   const dc = document.getElementById('dCompany');
   if (dc) dc.value = val;
-  const agentSel = document.querySelector('#guestTableBody .guest-card .g-agent');
-  if (agentSel) { agentSel.value = val; agentSel.dataset.company = val; }
+  const primaryCard = document.querySelector('#guestTableBody .guest-card');
+  if (primaryCard) {
+    const gCompany = primaryCard.querySelector('.g-company');
+    if (gCompany) gCompany.value = val;
+    const agentSel = primaryCard.querySelector('.g-agent');
+    if (agentSel) { agentSel.value = val; agentSel.dataset.company = val; }
+  }
 }
 
 // Called when g-agent changes → sync to RD
